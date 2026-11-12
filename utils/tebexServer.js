@@ -16,8 +16,45 @@ const {
   verifyWebhookSignature,
 } = require('./tebexPurchases');
 
+const { createLogger } = require('./logger');
+
+const log = createLogger('HTTP');
+
 const STORE_PAGE = path.join(__dirname, '..', 'assets', 'tebex-store.html');
 const MAX_BODY_BYTES = 1024 * 1024;
+const DISCORD_ID_REGEX = /^\d{17,20}$/;
+
+// Limite simples por IP para as rotas publicas que criam cestas/checkout.
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = Number.parseInt(process.env.HTTP_RATE_LIMIT_PER_MINUTE, 10) || 20;
+const rateLimitHits = new Map();
+
+function getClientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket?.remoteAddress || 'desconhecido';
+}
+
+function isRateLimited(req) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const entry = rateLimitHits.get(ip);
+
+  if (!entry || now - entry.start >= RATE_LIMIT_WINDOW_MS) {
+    rateLimitHits.set(ip, { start: now, count: 1 });
+    return false;
+  }
+
+  entry.count += 1;
+  return entry.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
+const rateLimitCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitHits) {
+    if (now - entry.start >= RATE_LIMIT_WINDOW_MS) rateLimitHits.delete(ip);
+  }
+}, RATE_LIMIT_WINDOW_MS);
+rateLimitCleanup.unref?.();
 
 function normalizePath(pathname) {
   if (!pathname) return '/';
@@ -100,6 +137,11 @@ function parseJsonBody(rawBuffer) {
 
 function handleHttpError(res, error) {
   const statusCode = error?.statusCode || 500;
+
+  if (statusCode >= 500) {
+    log.error('Erro ao processar requisicao:', error);
+  }
+
   const payload = {
     error: error?.message || 'Unexpected server error.',
   };
@@ -112,12 +154,19 @@ function handleHttpError(res, error) {
 }
 
 async function handleWebhook(req, res) {
+  if (!String(config.tebex?.webhookSecret || '').trim()) {
+    log.warn(`Webhook recusado de ${getClientIp(req)}: TEBEX_WEBHOOK_SECRET nao configurado.`);
+    sendJson(res, 503, { error: 'Webhook disabled: secret not configured.' });
+    return;
+  }
+
   const rawBuffer = await readRawBody(req);
   const rawBody = rawBuffer.toString('utf8');
   const signatureHeader = req.headers['x-signature'] || req.headers['X-Signature'];
   const signatureCheck = verifyWebhookSignature(rawBody, signatureHeader);
 
   if (!signatureCheck.valid) {
+    log.warn(`Webhook com assinatura invalida recusado (${signatureCheck.reason}) de ${getClientIp(req)}.`);
     sendJson(res, 401, {
       error: 'Invalid webhook signature.',
       reason: signatureCheck.reason,
@@ -143,6 +192,11 @@ async function handleWebhook(req, res) {
 
 async function handleApiRequest(req, res, requestUrl) {
   const pathname = normalizePath(requestUrl.pathname);
+
+  if (req.method === 'POST' && pathname.startsWith('/api/') && isRateLimited(req)) {
+    sendJson(res, 429, { error: 'Too many requests. Try again in a minute.' });
+    return true;
+  }
 
   if (req.method === 'GET' && pathname === '/api/tebex/categories') {
     const includePackages = parseIncludePackages(requestUrl.searchParams);
@@ -183,6 +237,11 @@ async function handleApiRequest(req, res, requestUrl) {
 
     if (!discordId) {
       sendJson(res, 400, { error: 'discord_id is required.' });
+      return true;
+    }
+
+    if (!DISCORD_ID_REGEX.test(String(discordId).trim())) {
+      sendJson(res, 400, { error: 'discord_id is invalid.' });
       return true;
     }
 
@@ -259,13 +318,14 @@ function startTebexServer() {
   });
 
   server.on('error', (error) => {
-    console.error('[Tebex] HTTP server error:', error);
+    log.error('Erro no servidor HTTP:', error);
   });
 
   server.listen(port, host, () => {
-    console.log(`[Tebex] HTTP server listening on http://${host}:${port}`);
-    console.log(`[Tebex] Webhook endpoint: ${webhookPath}`);
+    log.info(`Servidor ouvindo em http://${host}:${port} (webhook em ${webhookPath})`);
   });
+
+  server.info = { host, port, webhookPath };
 
   return server;
 }

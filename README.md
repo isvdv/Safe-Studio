@@ -1,6 +1,6 @@
 # Safe Studio
 
-Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas de moderacao, tickets, sorteios, cobranca por DM, integracao Tebex e paineis administrativos.
+Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas de moderacao, tickets, sorteios, integracao Tebex e paineis administrativos.
 
 > Este projeto usa a API oficial de bot do Discord. Ele nao automatiza contas de usuario e nao implementa self-bot de conta pessoal.
 
@@ -13,13 +13,12 @@ Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas d
 - Sistema de tickets com transcript.
 - Sorteios com painel interativo.
 - Boas-vindas com banner.
-- Cobranca por DM e encaminhamento de comprovantes.
 - Integracao Tebex para produtos, pagamentos, claims e paineis.
 - Registro automatico de slash commands.
 
 ## Requisitos
 
-- Node.js 18 ou superior.
+- Node.js 20.18 ou superior.
 - Um aplicativo/bot criado no Discord Developer Portal.
 - Intents habilitadas no portal:
   - Server Members Intent
@@ -65,6 +64,14 @@ Preencha o `.env` com o token do bot e as chaves que for usar.
 | `TEBEX_COMPLETE_URL` | Nao | URL de sucesso para checkout. |
 | `TEBEX_CANCEL_URL` | Nao | URL de cancelamento para checkout. |
 | `TEBEX_PACKAGE_ROLE_MAP` | Nao | JSON no formato `{ "package_id": "role_id" }`. |
+| `LOG_LEVEL` | Nao | Nivel minimo no console: `debug`, `info`, `warn` ou `error`. Padrao: `info`. |
+| `LOG_CHANNEL_ID` | Nao | Canal que recebe avisos e erros agrupados a cada 5 segundos. |
+| `LOG_DISCORD_LEVEL` | Nao | Nivel minimo enviado ao canal: `warn` (padrao) ou `error`. |
+| `LOG_COLORS` | Nao | `true`/`false` para forcar cores no terminal. Padrao: automatico. |
+| `LOG_TO_FILE` | Nao | `true` salva logs diarios em `logs/AAAA-MM-DD.log`. |
+| `HTTP_RATE_LIMIT_PER_MINUTE` | Nao | Limite de POSTs por IP por minuto nas rotas `/api`. Padrao: 20. |
+
+> Sem `TEBEX_WEBHOOK_SECRET` o bot recusa todos os webhooks Tebex, para impedir pagamentos forjados.
 
 ## Como iniciar
 
@@ -80,6 +87,28 @@ Ao iniciar, o bot:
 - Inicializa o servidor HTTP usado pelas APIs/webhooks Tebex.
 - Inicia o agendador de remocao de cargos temporarios do anti self-bot.
 
+## Console e logs
+
+Toda linha do console sai com horario, nivel e modulo, por exemplo:
+
+```txt
+20:31:04 INFO  [HTTP] Servidor ouvindo em http://0.0.0.0:3000 (webhook em /webhooks/tebex)
+20:31:06 AVISO [Boas-vindas] Canal 123... nao encontrado ou invalido em Meu Servidor.
+```
+
+Quando o bot conecta, aparece um painel com a conta, servidores, comandos e eventos carregados, a porta HTTP e um checklist da configuracao (o webhook sem secret aparece em vermelho).
+
+Em codigo novo, use o logger em vez de `console.log`:
+
+```js
+const { createLogger } = require('./utils/logger');
+const log = createLogger('MeuModulo');
+log.info('Tudo certo');
+log.error('Falhou:', error);
+```
+
+O bot tambem desliga de forma limpa com Ctrl+C ou restart da hospedagem: fecha o servidor HTTP, para os agendadores e envia os ultimos erros ao canal de logs.
+
 ## Comandos principais
 
 | Comando | Descricao |
@@ -91,7 +120,6 @@ Ao iniciar, o bot:
 | `/ticket` | Abre o editor/painel de tickets. |
 | `/trascript` | Gera transcript e fecha o ticket atual. |
 | `/sorteio` | Abre o painel de sorteios. |
-| `/cobranca` | Envia cobranca por DM. |
 | `/claim` | Resgata compras Tebex pendentes. |
 | `/claim-panel` | Publica o painel de claim. |
 | `/tebex-panel` | Abre painel administrativo Tebex. |
@@ -131,7 +159,7 @@ Permissoes recomendadas:
 
 ## Dados locais
 
-Arquivos em `data/` guardam estado de tickets, sorteios, cobrancas, compras e castigos pendentes. Eles ficam ignorados no Git para evitar publicar dados de servidores e usuarios.
+Arquivos em `data/` guardam estado de tickets, sorteios, compras e castigos pendentes. Eles ficam ignorados no Git para evitar publicar dados de servidores e usuarios.
 
 O `.env` tambem fica ignorado. Nunca publique token do bot, secrets Tebex ou chaves privadas.
 

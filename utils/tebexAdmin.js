@@ -32,6 +32,24 @@ function canUseTebexAdminCommands(interaction) {
   return configuredRoleIds.some((roleId) => memberRoleIds.has(String(roleId)));
 }
 
+// Mesma regra dos comandos admin, mas para mensagens comuns (ex.: !say).
+function isGuildMemberAdmin(member) {
+  if (!member) return false;
+
+  if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) {
+    return true;
+  }
+
+  const configuredRoleIds = config.discord?.adminRoleIds || [];
+  if (configuredRoleIds.length === 0) return false;
+
+  const memberRoleIds = member.roles?.cache
+    ? new Set([...member.roles.cache.keys()].map(String))
+    : new Set();
+
+  return configuredRoleIds.some((roleId) => memberRoleIds.has(String(roleId)));
+}
+
 async function requireTebexAdmin(interaction) {
   if (!interaction.inGuild()) {
     await interaction.reply({
@@ -113,6 +131,7 @@ module.exports = {
   formatCommandError,
   formatIsoUtc,
   formatUnixUtc,
+  isGuildMemberAdmin,
   requireTebexAdmin,
   truncate,
 };

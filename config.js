@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 function parseNumberEnv(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -11,7 +11,7 @@ function parseJsonEnv(value, fallback) {
   try {
     return JSON.parse(value);
   } catch (error) {
-    console.warn(`[Config] Invalid JSON in environment variable: ${error.message}`);
+    console.warn(`[Config] JSON invalido em variavel de ambiente: ${error.message}`);
     return fallback;
   }
 }
@@ -55,6 +55,7 @@ const config = {
       process.env.PRESENCE_CLIENT_ROLE_ID || '1461496253245423843',
     ).trim(),
     tebexPurchaseChannelId: String(process.env.TEBEX_PURCHASE_CHANNEL_ID || '').trim(),
+    logChannelId: String(process.env.LOG_CHANNEL_ID || '').trim(),
   },
   tebex: {
     publicToken: process.env.TEBEX_PUBLIC_TOKEN || '',
