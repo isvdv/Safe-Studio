@@ -18,7 +18,7 @@ Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas d
 
 ## Requisitos
 
-- Node.js 18 ou superior.
+- Node.js 20.18 ou superior.
 - Um aplicativo/bot criado no Discord Developer Portal.
 - Intents habilitadas no portal:
   - Server Members Intent
