@@ -247,9 +247,12 @@ function verifyWebhookSignature(rawBody, signatureHeader) {
   const webhookSecret = String(config.tebex?.webhookSecret || '').trim();
 
   if (!webhookSecret) {
+    // Sem secret nao ha como provar que o webhook veio da Tebex.
+    // Antes isso era aceito, o que permitia forjar pagamentos.
     return {
-      valid: true,
-      skipped: true,
+      valid: false,
+      skipped: false,
+      reason: 'webhook_secret_not_configured',
     };
   }
 

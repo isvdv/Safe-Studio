@@ -1,3 +1,16 @@
+const {
+  attachDiscord,
+  createLogger,
+  installConsole,
+  printBanner,
+  shutdownLogger,
+  settings: logSettings,
+} = require('./utils/logger');
+
+// Instala o logger antes de carregar qualquer outro modulo, para que
+// todos os console.* antigos ja saiam com horario, nivel e escopo.
+installConsole();
+
 const { ActivityType, Client, EmbedBuilder, Events, IntentsBitField, Partials, InteractionType } = require('discord.js');
 const { startTebexServer } = require('./utils/tebexServer');
 const {
@@ -24,12 +37,12 @@ const {
 } = require('./utils/selfBotTrap');
 const { buildTebexPanelMessage } = require('./utils/tebexPanel');
 const { TEBEX_EVENTS, tebexEvents } = require('./utils/tebexEvents');
+const { isGuildMemberAdmin } = require('./utils/tebexAdmin');
 const config = require('./config');
+const packageInfo = require('./package.json');
 
-const CHANNEL_ID = null; // Canal para receber os logs
+const log = createLogger('Bot');
 const CLIENT_ROLE_COUNT_REFRESH_MS = 5 * 60 * 1000;
-
-console.clear();
 
 const client = new Client({
   intents: [
@@ -111,7 +124,7 @@ async function getClientRoleMemberCount() {
       client.presenceClientRoleMembersSyncedAt = now;
     }
   } catch (error) {
-    console.warn('[Presence] Nao consegui atualizar o cache de membros para contar clientes:', error.message);
+    createLogger('Presenca').warn('Nao consegui atualizar o cache de membros para contar clientes:', error.message);
   }
 
   return matchedRole.members.size;
@@ -154,25 +167,123 @@ async function updateBotPresence() {
 
     client.presenceIndex += 1;
   } catch (error) {
-    console.error('[Presence] Falha ao atualizar status do bot:', error);
+    createLogger('Presenca').error('Falha ao atualizar status do bot:', error);
   } finally {
     client.presenceUpdateRunning = false;
   }
 }
 
+function formatMemoryMb() {
+  return `${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function buildConfigChecks() {
+  const tebex = config.tebex || {};
+  const discord = config.discord || {};
+  const hasWebhookSecret = Boolean(String(tebex.webhookSecret || '').trim());
+
+  return [
+    {
+      label: 'Cargos admin',
+      status: discord.adminRoleIds?.length ? 'ok' : 'warn',
+      value: discord.adminRoleIds?.length
+        ? `${discord.adminRoleIds.length} cargo(s)`
+        : 'nenhum (so quem tem Administrador usa comandos admin)',
+    },
+    {
+      label: 'Webhook Tebex',
+      status: hasWebhookSecret ? 'ok' : 'error',
+      value: hasWebhookSecret
+        ? 'secret configurado'
+        : 'SEM TEBEX_WEBHOOK_SECRET: webhooks serao recusados',
+    },
+    {
+      label: 'Tebex Plugin API',
+      status: tebex.pluginSecret ? 'ok' : 'warn',
+      value: tebex.pluginSecret ? 'configurada' : 'TEBEX_PLUGIN_SECRET vazio',
+    },
+    {
+      label: 'Tebex Headless',
+      status: tebex.publicToken ? 'ok' : 'warn',
+      value: tebex.publicToken ? 'configurada' : 'TEBEX_PUBLIC_TOKEN vazio',
+    },
+    {
+      label: 'Canal de compras',
+      status: discord.tebexPurchaseChannelId ? 'ok' : 'info',
+      value: discord.tebexPurchaseChannelId || 'nao definido',
+    },
+    {
+      label: 'Canal de logs',
+      status: discord.logChannelId ? 'ok' : 'info',
+      value: discord.logChannelId || 'nao definido (LOG_CHANNEL_ID)',
+    },
+  ];
+}
+
+function printStartupPanel() {
+  const httpInfo = tebexServer?.info;
+  const loadedEvents = client.loadedEvents?.length ?? 0;
+  const loadedCommands = client.slashCommands?.size ?? 0;
+
+  printBanner(`Safe Studio v${packageInfo.version} online`, [
+    {
+      title: 'Bot',
+      rows: [
+        { label: 'Conta', status: 'ok', value: `${client.user.tag} (${client.user.id})` },
+        { label: 'Servidores', status: 'ok', value: client.guilds.cache.size },
+        { label: 'Comandos', status: loadedCommands ? 'ok' : 'warn', value: loadedCommands },
+        { label: 'Eventos', status: loadedEvents ? 'ok' : 'warn', value: loadedEvents },
+        {
+          label: 'Servidor HTTP',
+          status: httpInfo ? 'ok' : 'error',
+          value: httpInfo ? `porta ${httpInfo.port}` : 'nao iniciou',
+        },
+        { label: 'Node / memoria', status: 'info', value: `${process.version} / ${formatMemoryMb()}` },
+        {
+          label: 'Logs',
+          status: 'info',
+          value: `nivel ${process.env.LOG_LEVEL || 'info'}${logSettings.fileEnabled ? ', salvando em logs/' : ''}`,
+        },
+      ],
+    },
+    {
+      title: 'Configuracao',
+      rows: buildConfigChecks(),
+    },
+  ]);
+}
+
 // Evento ready
 client.once(Events.ClientReady, () => {
   try {
-    console.log('Bot started successfully!');
-    console.log(`Logged in as: ${client.user.tag}`);
-    console.log(`ID: ${client.user.id}`);
-    console.log(`Connected to ${client.guilds.cache.size} servers!`);
+    if (attachDiscord(client, config.discord.logChannelId)) {
+      log.debug(`Avisos e erros serao enviados para o canal ${config.discord.logChannelId}.`);
+    }
+
+    printStartupPanel();
+
     updateBotPresence();
-    setInterval(updateBotPresence, 10 * 1000);
+    client.presenceInterval = setInterval(updateBotPresence, 10 * 1000);
     startSelfBotRoleRemovalScheduler(client);
   } catch (error) {
-    console.error('[Erro no evento ready]:', error.message);
+    log.error('Erro no evento ready:', error);
   }
+});
+
+client.on(Events.ShardDisconnect, (event) => {
+  log.warn(`Desconectado do Discord (codigo ${event?.code ?? '?'}). Tentando reconectar...`);
+});
+
+client.on(Events.ShardReconnecting, () => {
+  log.info('Reconectando ao Discord...');
+});
+
+client.on(Events.ShardResume, (_shardId, replayed) => {
+  log.info(`Conexao com o Discord restabelecida (${replayed} eventos reenviados).`);
+});
+
+client.on(Events.Error, (error) => {
+  log.error('Erro do cliente Discord:', error);
 });
 
 // Carrega handlers de comandos e eventos
@@ -180,7 +291,7 @@ try {
   require('./Handler/commands')(client);
   require('./Handler/events')(client);
 } catch (error) {
-  console.error('[Erro ao carregar handlers]:', error);
+  log.error('Erro ao carregar handlers:', error);
 }
 
 // Lida com interacoes de comandos de barra e botoes administrativos
@@ -261,7 +372,7 @@ async function handleClaimPanelInteraction(interaction) {
       }),
     );
   } catch (error) {
-    console.error('[Claim Panel] Falha ao processar interacao:', error);
+    createLogger('Claim').error('Falha ao processar interacao do painel:', error);
     await interaction.editReply(
       await buildClaimErrorMessage(
         'Nao consegui consultar seu claim agora. Tente novamente em alguns segundos.',
@@ -301,7 +412,7 @@ async function handleTebexPanelInteraction(interaction) {
 
     await interaction.update(panelMessage);
   } catch (error) {
-    console.error('[Tebex Panel] Erro ao atualizar painel:', error);
+    createLogger('Tebex').error('Erro ao atualizar painel:', error);
 
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply({
@@ -336,7 +447,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     try {
       await command.run(client, interaction);
     } catch (error) {
-      console.error(`[Erro ao executar comando ${interaction.commandName}]:`, error);
+      createLogger('Comandos').error(`Erro ao executar /${interaction.commandName} (por ${interaction.user?.tag}):`, error);
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({ content: 'Erro ao executar o comando!', ephemeral: true }).catch(() => {});
       }
@@ -377,7 +488,7 @@ async function handleBillingProofMessage(message) {
     || await client.users.fetch(forwardUserId).catch(() => null);
 
   if (!forwardUser) {
-    console.warn(`[cobranca] Usuario de destino para comprovantes nao encontrado: ${forwardUserId}`);
+    createLogger('Cobranca').warn(`Usuario de destino para comprovantes nao encontrado: ${forwardUserId}`);
     await message.channel.send(
       buildProofForwardErrorPayload(),
     ).catch(() => {});
@@ -399,7 +510,7 @@ async function handleBillingProofMessage(message) {
       buildProofAckPayload(),
     ).catch(() => {});
   } catch (error) {
-    console.error('[cobranca] Falha ao encaminhar comprovante:', error);
+    createLogger('Cobranca').error('Falha ao encaminhar comprovante:', error);
     await message.channel.send(
       buildProofForwardErrorPayload(),
     ).catch(() => {});
@@ -416,7 +527,7 @@ async function sendTebexPurchaseNotification(payload) {
     || await client.channels.fetch(channelId).catch(() => null);
 
   if (!channel || !channel.isTextBased()) {
-    console.warn(`[Tebex] Canal de compras invalido ou inacessivel: ${channelId}`);
+    createLogger('Tebex').warn(`Canal de compras invalido ou inacessivel: ${channelId}`);
     return;
   }
 
@@ -478,7 +589,7 @@ async function sendTebexPurchaseNotification(payload) {
 
 tebexEvents.on(TEBEX_EVENTS.PAYMENT_COMPLETED, (payload) => {
   void sendTebexPurchaseNotification(payload).catch((error) => {
-    console.error('[Tebex] Falha ao enviar notificacao de compra:', error);
+    createLogger('Tebex').error('Falha ao enviar notificacao de compra:', error);
   });
 });
 
@@ -488,54 +599,55 @@ let tebexServer = null;
 try {
   tebexServer = startTebexServer();
 } catch (error) {
-  console.error('[Erro ao iniciar servidor Tebex]:', error);
+  log.error('Erro ao iniciar servidor HTTP/Tebex:', error);
 }
 
 // Login do bot
-client.login(config.discord.token).catch((error) => {
-  console.error('[Erro ao fazer login]:', error);
-});
+if (!config.discord.token) {
+  log.error('DISCORD_BOT_TOKEN nao definido no .env. O bot nao vai conectar.');
+} else {
+  log.info('Conectando ao Discord...');
+  client.login(config.discord.token).catch((error) => {
+    log.error('Erro ao fazer login (token invalido ou intents desativadas no portal?):', error);
+  });
+}
 
 // Tratamento de erros globais
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[unhandledRejection]', reason, promise);
+process.on('unhandledRejection', (reason) => {
+  log.error('Promise rejeitada sem tratamento:', reason);
 });
 
 process.on('uncaughtException', (err, origin) => {
-  console.error('[uncaughtException]', err, origin);
+  log.error(`Excecao nao tratada (${origin}):`, err);
 });
 
-process.on('uncaughtExceptionMonitor', (err, origin) => {
-  console.error('[uncaughtExceptionMonitor]', err, origin);
-});
+// Desligamento limpo (Ctrl+C, restart da Discloud, etc.)
+let shuttingDown = false;
 
-// Funcao para enviar logs ao Discord
-function enviarLog(type, ...args) {
-  const canal = client.channels.cache.get(CHANNEL_ID);
-  if (!canal) return;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
 
-  const mensagem = args.map((arg) => {
-    if (typeof arg === 'object') {
-      try {
-        return '```json\n' + JSON.stringify(arg, null, 2) + '\n```';
-      } catch {
-        return String(arg);
-      }
-    }
-    return String(arg);
-  }).join(' ');
+  log.info(`Recebido ${signal}. Desligando com seguranca...`);
 
-  canal.send(`[${type.toUpperCase()}] ${mensagem}`).catch(() => {});
+  const forceExit = setTimeout(() => process.exit(1), 10 * 1000);
+  forceExit.unref();
+
+  for (const key of ['presenceInterval', 'giveawayWatcher', 'selfBotRoleRemovalInterval']) {
+    if (client[key]) clearInterval(client[key]);
+  }
+
+  if (tebexServer) {
+    await new Promise((resolve) => tebexServer.close(() => resolve()));
+  }
+
+  await shutdownLogger();
+  await client.destroy();
+  process.exit(0);
 }
 
-// Sobrescrevendo console
-['log', 'warn', 'error', 'info'].forEach((type) => {
-  const original = console[type];
-  console[type] = (...args) => {
-    original(...args); // continua mostrando no terminal
-    enviarLog(type, ...args);
-  };
-});
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
@@ -544,13 +656,16 @@ client.on('messageCreate', async (message) => {
     const handledSelfBotTrap = await handleSelfBotTrapMessage(message, client);
     if (handledSelfBotTrap) return;
   } catch (error) {
-    console.error('[selfbot] Falha ao processar canal anti self-bot:', error);
+    createLogger('Selfbot').error('Falha ao processar canal anti self-bot:', error);
   }
 
   const handledBillingProof = await handleBillingProofMessage(message);
   if (handledBillingProof) return;
 
-  if (message.content.startsWith('!say')) {
+  if (/^!say(\s|$)/.test(message.content)) {
+    // Apenas administradores (permissao Administrador ou ADMIN_ROLE_IDS).
+    if (!message.inGuild() || !isGuildMemberAdmin(message.member)) return;
+
     const text = message.content.slice(4).trim();
 
     // Deleta a mensagem original
@@ -563,18 +678,23 @@ client.on('messageCreate', async (message) => {
     }
 
     const attachment = message.attachments.first();
+    // Nunca deixa o !say marcar @everyone, @here, cargos ou pessoas.
+    const allowedMentions = { parse: [] };
 
     try {
       if (attachment && attachment.contentType?.startsWith('image/')) {
         await message.channel.send({
-          content: text || 'foto', // caso so tenha imagem
+          content: text || undefined,
           files: [attachment.url],
+          allowedMentions,
         });
       } else {
-        await message.channel.send({ content: text });
+        await message.channel.send({ content: text, allowedMentions });
       }
+
+      createLogger('Say').info(`${message.author.tag} usou !say em #${message.channel.name}.`);
     } catch (err) {
-      console.error('Erro ao reenviar a mensagem:', err);
+      createLogger('Say').error('Erro ao reenviar a mensagem:', err);
       return message.channel.send('Ocorreu um erro ao tentar reenviar a mensagem.');
     }
   }

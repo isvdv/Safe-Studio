@@ -65,6 +65,14 @@ Preencha o `.env` com o token do bot e as chaves que for usar.
 | `TEBEX_COMPLETE_URL` | Nao | URL de sucesso para checkout. |
 | `TEBEX_CANCEL_URL` | Nao | URL de cancelamento para checkout. |
 | `TEBEX_PACKAGE_ROLE_MAP` | Nao | JSON no formato `{ "package_id": "role_id" }`. |
+| `LOG_LEVEL` | Nao | Nivel minimo no console: `debug`, `info`, `warn` ou `error`. Padrao: `info`. |
+| `LOG_CHANNEL_ID` | Nao | Canal que recebe avisos e erros agrupados a cada 5 segundos. |
+| `LOG_DISCORD_LEVEL` | Nao | Nivel minimo enviado ao canal: `warn` (padrao) ou `error`. |
+| `LOG_COLORS` | Nao | `true`/`false` para forcar cores no terminal. Padrao: automatico. |
+| `LOG_TO_FILE` | Nao | `true` salva logs diarios em `logs/AAAA-MM-DD.log`. |
+| `HTTP_RATE_LIMIT_PER_MINUTE` | Nao | Limite de POSTs por IP por minuto nas rotas `/api`. Padrao: 20. |
+
+> Sem `TEBEX_WEBHOOK_SECRET` o bot recusa todos os webhooks Tebex, para impedir pagamentos forjados.
 
 ## Como iniciar
 
@@ -79,6 +87,28 @@ Ao iniciar, o bot:
 - Carrega eventos da pasta `Events`.
 - Inicializa o servidor HTTP usado pelas APIs/webhooks Tebex.
 - Inicia o agendador de remocao de cargos temporarios do anti self-bot.
+
+## Console e logs
+
+Toda linha do console sai com horario, nivel e modulo, por exemplo:
+
+```txt
+20:31:04 INFO  [HTTP] Servidor ouvindo em http://0.0.0.0:3000 (webhook em /webhooks/tebex)
+20:31:06 AVISO [Boas-vindas] Canal 123... nao encontrado ou invalido em Meu Servidor.
+```
+
+Quando o bot conecta, aparece um painel com a conta, servidores, comandos e eventos carregados, a porta HTTP e um checklist da configuracao (o webhook sem secret aparece em vermelho).
+
+Em codigo novo, use o logger em vez de `console.log`:
+
+```js
+const { createLogger } = require('./utils/logger');
+const log = createLogger('MeuModulo');
+log.info('Tudo certo');
+log.error('Falhou:', error);
+```
+
+O bot tambem desliga de forma limpa com Ctrl+C ou restart da hospedagem: fecha o servidor HTTP, para os agendadores e envia os ultimos erros ao canal de logs.
 
 ## Comandos principais
 

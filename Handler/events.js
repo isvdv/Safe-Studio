@@ -1,5 +1,8 @@
 ﻿const fs = require("fs");
 const path = require("path");
+const { createLogger } = require("../utils/logger");
+
+const log = createLogger("Eventos");
 
 function registrarArquivo(filePath, carregados, client) {
   delete require.cache[require.resolve(filePath)];
@@ -13,12 +16,19 @@ function registrarArquivo(filePath, carregados, client) {
   }
 
   if (typeof eventModule.execute === "function" && eventModule.name) {
-    client.on(eventModule.name, (...args) => eventModule.execute(...args, client));
+    const listen = eventModule.once ? client.once.bind(client) : client.on.bind(client);
+    listen(eventModule.name, async (...args) => {
+      try {
+        await eventModule.execute(...args, client);
+      } catch (error) {
+        log.error(`Falha no evento ${eventModule.name} (${fileLabel}):`, error);
+      }
+    });
     carregados.push(`${fileLabel} -> ${eventModule.name}`);
     return;
   }
 
-  console.warn(`[eventsHandler] Arquivo ignorado: ${fileLabel}`);
+  log.warn(`Arquivo ignorado (sem execute/name): ${fileLabel}`);
 }
 
 function listarArquivos(dir, carregados, client) {
@@ -44,7 +54,8 @@ function eventsHandler(client) {
   const carregados = [];
 
   listarArquivos(eventsPath, carregados, client);
-  console.log(`Eventos carregados: ${carregados.join(" | ")}`);
+  client.loadedEvents = carregados;
+  log.debug(`Eventos carregados: ${carregados.join(" | ")}`);
 }
 
 module.exports = eventsHandler;

@@ -1,5 +1,8 @@
 const fs = require('fs').promises;
 const { Collection } = require('discord.js');
+const { createLogger } = require('../utils/logger');
+
+const log = createLogger('Comandos');
 
 function getConfiguredGuildIds() {
   const rawGuildIds = process.env.DISCORD_GUILD_IDS || process.env.GUILD_IDS || '';
@@ -37,7 +40,7 @@ function getTargetGuilds(client) {
 
 async function clearGlobalCommands(client) {
   await client.application.commands.set([]);
-  console.log('Comandos globais antigos removidos.');
+  log.debug('Comandos globais antigos removidos.');
 }
 
 async function clearGuildCommands(client) {
@@ -48,7 +51,7 @@ async function clearGuildCommands(client) {
   }
 
   if (guilds.length) {
-    console.log(`Comandos de servidor antigos removidos de ${guilds.length} servidor(es).`);
+    log.debug(`Comandos de servidor antigos removidos de ${guilds.length} servidor(es).`);
   }
 }
 
@@ -57,25 +60,25 @@ async function registerSlashCommands(client, slashArray, comandosCarregados) {
     if (getCommandScope() === 'global') {
       await clearGuildCommands(client);
       await client.application.commands.set(slashArray);
-      console.log('Comandos registrados globalmente.');
+      log.info(`${slashArray.length} comandos registrados globalmente.`);
     } else {
       await clearGlobalCommands(client);
       const targetGuilds = getTargetGuilds(client);
 
       if (!targetGuilds.length) {
-        console.warn('Nenhum servidor encontrado para registrar comandos.');
+        log.warn('Nenhum servidor encontrado para registrar comandos.');
       }
 
       for (const guild of targetGuilds) {
         await guild.commands.set(slashArray);
       }
 
-      console.log(`Comandos registrados em ${targetGuilds.length} servidor(es).`);
+      log.info(`${slashArray.length} comandos registrados em ${targetGuilds.length} servidor(es).`);
     }
 
-    console.log(`Comandos carregados: [${comandosCarregados.join(', ')}]`);
+    log.debug(`Comandos: ${comandosCarregados.join(', ')}`);
   } catch (error) {
-    console.error('Erro ao registrar comandos:', error);
+    log.error('Erro ao registrar comandos:', error);
   }
 }
 
@@ -94,13 +97,23 @@ async function commandsHandler(client) {
         if (!file.endsWith('.js')) continue;
 
         const filePath = `../Commands/${subfolder}/${file}`;
-        delete require.cache[require.resolve(filePath)];
+        let command;
 
-        const command = require(filePath);
+        try {
+          delete require.cache[require.resolve(filePath)];
+          command = require(filePath);
+        } catch (error) {
+          log.error(`Falha ao carregar ${subfolder}/${file}:`, error);
+          continue;
+        }
+
         const commandData = normalizeCommandData(command);
         const commandName = command.name || commandData.name;
 
-        if (!commandName || typeof command.run !== 'function') continue;
+        if (!commandName || typeof command.run !== 'function') {
+          log.warn(`Arquivo ignorado (sem name/run): ${subfolder}/${file}`);
+          continue;
+        }
 
         client.slashCommands.set(commandName, command);
         slashArray.push(commandData);
@@ -122,13 +135,13 @@ async function commandsHandler(client) {
 
       try {
         await guild.commands.set(slashArray);
-        console.log(`Comandos registrados no servidor ${guild.name}.`);
+        log.info(`Comandos registrados no servidor ${guild.name}.`);
       } catch (error) {
-        console.error(`Erro ao registrar comandos no servidor ${guild.name}:`, error);
+        log.error(`Erro ao registrar comandos no servidor ${guild.name}:`, error);
       }
     });
   } catch (error) {
-    console.error('Erro ao carregar comandos:', error);
+    log.error('Erro ao carregar comandos:', error);
   }
 }
 

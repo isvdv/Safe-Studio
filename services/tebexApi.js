@@ -1,5 +1,5 @@
 const axios = require('axios');
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const TEBEX_BASE_URL = 'https://plugin.tebex.io';
 const TEBEX_TIMEOUT_MS = 10_000;
