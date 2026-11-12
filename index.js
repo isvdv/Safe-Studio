@@ -23,15 +23,6 @@ const {
   buildClaimStatusMessage,
 } = require('./utils/claimPanel');
 const {
-  buildProofAckPayload,
-  buildProofAttachmentPromptPayload,
-  buildProofForwardErrorPayload,
-  buildProofForwardPayload,
-  getPendingBillingRequest,
-  markBillingRequestCompleted,
-  resolveForwardUserId,
-} = require('./utils/cobranca');
-const {
   handleSelfBotTrapMessage,
   startSelfBotRoleRemovalScheduler,
 } = require('./utils/selfBotTrap');
@@ -466,59 +457,6 @@ function truncateText(value, maxLength = 1024) {
   return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
-async function handleBillingProofMessage(message) {
-  if (message.guildId) return false;
-
-  const pendingBilling = getPendingBillingRequest(message.author.id);
-  if (!pendingBilling) return false;
-
-  const messageText = String(message.content || '').trim();
-  const hasAttachment = message.attachments.size > 0;
-  const hasLink = /https?:\/\/\S+/i.test(messageText);
-
-  if (!hasAttachment && !hasLink) {
-    await message.channel.send(
-      buildProofAttachmentPromptPayload(),
-    ).catch(() => {});
-    return true;
-  }
-
-  const forwardUserId = resolveForwardUserId();
-  const forwardUser = client.users.cache.get(forwardUserId)
-    || await client.users.fetch(forwardUserId).catch(() => null);
-
-  if (!forwardUser) {
-    createLogger('Cobranca').warn(`Usuario de destino para comprovantes nao encontrado: ${forwardUserId}`);
-    await message.channel.send(
-      buildProofForwardErrorPayload(),
-    ).catch(() => {});
-    return true;
-  }
-
-  try {
-    await forwardUser.send(
-      buildProofForwardPayload({
-        billing: pendingBilling,
-        message,
-        botAvatarUrl: client.user?.displayAvatarURL({ size: 256 }) || '',
-      }),
-    );
-
-    markBillingRequestCompleted(message.author.id);
-
-    await message.channel.send(
-      buildProofAckPayload(),
-    ).catch(() => {});
-  } catch (error) {
-    createLogger('Cobranca').error('Falha ao encaminhar comprovante:', error);
-    await message.channel.send(
-      buildProofForwardErrorPayload(),
-    ).catch(() => {});
-  }
-
-  return true;
-}
-
 async function sendTebexPurchaseNotification(payload) {
   const channelId = String(config.discord?.tebexPurchaseChannelId || '').trim();
   if (!channelId) return;
@@ -658,9 +596,6 @@ client.on('messageCreate', async (message) => {
   } catch (error) {
     createLogger('Selfbot').error('Falha ao processar canal anti self-bot:', error);
   }
-
-  const handledBillingProof = await handleBillingProofMessage(message);
-  if (handledBillingProof) return;
 
   if (/^!say(\s|$)/.test(message.content)) {
     // Apenas administradores (permissao Administrador ou ADMIN_ROLE_IDS).

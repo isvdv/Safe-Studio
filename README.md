@@ -1,6 +1,6 @@
 # Safe Studio
 
-Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas de moderacao, tickets, sorteios, cobranca por DM, integracao Tebex e paineis administrativos.
+Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas de moderacao, tickets, sorteios, integracao Tebex e paineis administrativos.
 
 > Este projeto usa a API oficial de bot do Discord. Ele nao automatiza contas de usuario e nao implementa self-bot de conta pessoal.
 
@@ -13,7 +13,6 @@ Bot de Discord em Node.js usando `discord.js` v14. O projeto reune ferramentas d
 - Sistema de tickets com transcript.
 - Sorteios com painel interativo.
 - Boas-vindas com banner.
-- Cobranca por DM e encaminhamento de comprovantes.
 - Integracao Tebex para produtos, pagamentos, claims e paineis.
 - Registro automatico de slash commands.
 
@@ -121,7 +120,6 @@ O bot tambem desliga de forma limpa com Ctrl+C ou restart da hospedagem: fecha o
 | `/ticket` | Abre o editor/painel de tickets. |
 | `/trascript` | Gera transcript e fecha o ticket atual. |
 | `/sorteio` | Abre o painel de sorteios. |
-| `/cobranca` | Envia cobranca por DM. |
 | `/claim` | Resgata compras Tebex pendentes. |
 | `/claim-panel` | Publica o painel de claim. |
 | `/tebex-panel` | Abre painel administrativo Tebex. |
@@ -161,7 +159,7 @@ Permissoes recomendadas:
 
 ## Dados locais
 
-Arquivos em `data/` guardam estado de tickets, sorteios, cobrancas, compras e castigos pendentes. Eles ficam ignorados no Git para evitar publicar dados de servidores e usuarios.
+Arquivos em `data/` guardam estado de tickets, sorteios, compras e castigos pendentes. Eles ficam ignorados no Git para evitar publicar dados de servidores e usuarios.
 
 O `.env` tambem fica ignorado. Nunca publique token do bot, secrets Tebex ou chaves privadas.
 
